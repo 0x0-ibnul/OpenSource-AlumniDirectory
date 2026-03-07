@@ -4,26 +4,32 @@ import { NextResponse } from 'next/server';
 // 1. Force Next.js to skip pre-rendering this route during build time
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '10');
+    const batch = searchParams.get('batch');
+    const country = searchParams.get('country');
+    const organization = searchParams.get('organization');
+    const search = searchParams.get('search')?.toLowerCase();
+
     const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
     const spreadsheetId = process.env.GOOGLE_SHEET_ID;
 
     // 2. Check if Environment Variables exist
     if (!serviceAccountKey || !spreadsheetId) {
-      console.error('Missing Google Service Account Key or Sheet ID in environment variables.');
       return NextResponse.json(
         { error: 'Server configuration missing' },
         { status: 500 }
       );
     }
 
-    // 3. Safe JSON parsing of the key with TypeScript safety
+    // 3. Safe JSON parsing of the key
     let credentials: any;
     try {
       credentials = JSON.parse(serviceAccountKey);
     } catch (parseError: any) {
-      console.error('Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY JSON:', parseError?.message || parseError);
       return NextResponse.json(
         { error: 'Invalid Service Account Key format' },
         { status: 500 }
@@ -39,37 +45,59 @@ export async function GET() {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: spreadsheetId,
-      range: 'Summary!A2:G', // Excluding header row
+      range: 'Summary!A2:G',
     });
 
-    const rows = response.data.values || [];
-    
-    // 4. Extract and process unique values
-    const batches = [...new Set(rows
-      .map((row: any) => parseInt(row[0]))
-      .filter((batch: any) => !isNaN(batch)))] 
-      .sort((a: any, b: any) => a - b); 
+    let rows = response.data.values || [];
 
-    const countries = [...new Set(rows
-      .map((row: any) => row[2])
-      .filter((country: any) => country && country.trim()))] 
-      .sort();
+    // 4. Map rows to objects
+    let data = rows.map((row: any) => ({
+      batch: row[0],
+      name: row[1],
+      country: row[2],
+      city: row[3],
+      state: row[4],
+      organization: row[5],
+      linkedin: row[6],
+    }));
 
-    const organizations = [...new Set(rows
-      .map((row: any) => row[5])
-      .filter((org: any) => org && org.trim()))] 
-      .sort();
+    // 5. Apply filters
+    if (batch) {
+      data = data.filter((item: any) => item.batch === batch);
+    }
+    if (country) {
+      data = data.filter((item: any) => item.country === country);
+    }
+    if (organization) {
+      data = data.filter((item: any) => item.organization === organization);
+    }
+    if (search) {
+      data = data.filter((item: any) => 
+        item.name?.toLowerCase().includes(search) || 
+        item.organization?.toLowerCase().includes(search)
+      );
+    }
+
+    // 6. Pagination
+    const totalItems = data.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    const startIndex = (page - 1) * limit;
+    const paginatedData = data.slice(startIndex, startIndex + limit);
 
     return NextResponse.json({
-      batches,
-      countries,
-      organizations
+      data: paginatedData,
+      pagination: {
+        totalItems,
+        totalPages,
+        currentPage: page,
+        itemsPerPage: limit,
+      },
     });
 
   } catch (error: any) {
-    console.error('Error fetching dropdown options:', error);
+    console.error('Error fetching alumni data:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch dropdown options', details: error.message },
+      { error: 'Failed to fetch alumni data', details: error.message },
       { status: 500 }
     );
   }
