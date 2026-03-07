@@ -18,12 +18,12 @@ export async function GET() {
       );
     }
 
-    // 3. Safe JSON parsing of the key
-    let credentials;
+    // 3. Safe JSON parsing of the key with TypeScript safety
+    let credentials: any;
     try {
       credentials = JSON.parse(serviceAccountKey);
-    } catch (parseError) {
-      console.error('Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY JSON:', parseError.message);
+    } catch (parseError: any) {
+      console.error('Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY JSON:', parseError?.message || parseError);
       return NextResponse.json(
         { error: 'Invalid Service Account Key format' },
         { status: 500 }
@@ -46,18 +46,18 @@ export async function GET() {
     
     // 4. Extract and process unique values
     const batches = [...new Set(rows
-      .map(row => parseInt(row[0]))
-      .filter(batch => !isNaN(batch)))] 
-      .sort((a, b) => a - b); 
+      .map((row: any) => parseInt(row[0]))
+      .filter((batch: any) => !isNaN(batch)))] 
+      .sort((a: any, b: any) => a - b); 
 
     const countries = [...new Set(rows
-      .map(row => row[2])
-      .filter(country => country && country.trim()))] 
+      .map((row: any) => row[2])
+      .filter((country: any) => country && country.trim()))] 
       .sort();
 
     const organizations = [...new Set(rows
-      .map(row => row[5])
-      .filter(org => org && org.trim()))] 
+      .map((row: any) => row[5])
+      .filter((org: any) => org && org.trim()))] 
       .sort();
 
     return NextResponse.json({
@@ -66,7 +66,7 @@ export async function GET() {
       organizations
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching dropdown options:', error);
     return NextResponse.json(
       { error: 'Failed to fetch dropdown options', details: error.message },
