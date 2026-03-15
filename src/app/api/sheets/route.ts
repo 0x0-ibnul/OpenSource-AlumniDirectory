@@ -1,77 +1,103 @@
 import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
-import { Alumni } from '@/types';
 
-const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY || ''),
-  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-});
-
-const sheets = google.sheets({ version: 'v4', auth });
+// 1. Force Next.js to skip pre-rendering this route during build time
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const name = searchParams.get('name');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '10');
     const batch = searchParams.get('batch');
     const country = searchParams.get('country');
     const organization = searchParams.get('organization');
+    const search = searchParams.get('search')?.toLowerCase();
+
+    const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+
+    // 2. Check if Environment Variables exist
+    if (!serviceAccountKey || !spreadsheetId) {
+      return NextResponse.json(
+        { error: 'Server configuration missing' },
+        { status: 500 }
+      );
+    }
+
+    // 3. Safe JSON parsing of the key
+    let credentials: any;
+    try {
+      credentials = JSON.parse(serviceAccountKey);
+    } catch (parseError: any) {
+      return NextResponse.json(
+        { error: 'Invalid Service Account Key format' },
+        { status: 500 }
+      );
+    }
+
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+
+    const sheets = google.sheets({ version: 'v4', auth });
 
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: 'Summary!A2:G', // Assuming first row is header
+      spreadsheetId: spreadsheetId,
+      range: 'Summary!A2:G',
     });
 
-    const rows = response.data.values || [];
-    let alumni: Alumni[] = rows.map(row => ({
-      batch: parseInt(row[0]),
-      studentName: row[1],
-      countryOfResidence: row[2],
-      currentRole: row[3],
-      roleFunction: row[4],
+    let rows = response.data.values || [];
+
+    // 4. Map rows to objects
+    let data = rows.map((row: any) => ({
+      batch: row[0],
+      name: row[1],
+      country: row[2],
+      city: row[3],
+      state: row[4],
       organization: row[5],
-      linkedinUrl: row[6]
+      linkedin: row[6],
     }));
 
-    // Apply filters
-    if (name) {
-      const searchName = name.toLowerCase();
-      alumni = alumni.filter(a => 
-        a.studentName.toLowerCase().includes(searchName)
-      );
-    }
-
+    // 5. Apply filters
     if (batch) {
-      alumni = alumni.filter(a => a.batch === parseInt(batch));
+      data = data.filter((item: any) => item.batch === batch);
     }
-
     if (country) {
-      const searchCountry = country.toLowerCase();
-      alumni = alumni.filter(a => 
-        a.countryOfResidence?.toLowerCase().includes(searchCountry)
-      );
+      data = data.filter((item: any) => item.country === country);
     }
-
     if (organization) {
-      const searchOrg = organization.toLowerCase();
-      alumni = alumni.filter(a => 
-        a.organization?.toLowerCase().includes(searchOrg)
+      data = data.filter((item: any) => item.organization === organization);
+    }
+    if (search) {
+      data = data.filter((item: any) => 
+        item.name?.toLowerCase().includes(search) || 
+        item.organization?.toLowerCase().includes(search)
       );
     }
 
-    // Sort by batch number and then by student name within each batch
-    alumni.sort((a, b) => {
-      if (a.batch !== b.batch) {
-        return a.batch - b.batch;
-      }
-      return a.studentName.localeCompare(b.studentName);
+    // 6. Pagination
+    const totalItems = data.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    const startIndex = (page - 1) * limit;
+    const paginatedData = data.slice(startIndex, startIndex + limit);
+
+    return NextResponse.json({
+      data: paginatedData,
+      pagination: {
+        totalItems,
+        totalPages,
+        currentPage: page,
+        itemsPerPage: limit,
+      },
     });
 
-    return NextResponse.json(alumni);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching alumni data:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch alumni data' },
+      { error: 'Failed to fetch alumni data', details: error.message },
       { status: 500 }
     );
   }
